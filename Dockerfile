@@ -15,6 +15,7 @@ ARG CUDA_VERSION=12.6.1
 # Pytorch
 ARG CUDA_IMAGE_TYPE=runtime
 # ARG CUDNN_VERSION=8
+ARG UV_PYTHON_INSTALL_DIR=/opt/python
 
 # required on all stages..e.g. CAs and timezones should never be stale
 ARG SYS_PACKAGES="ca-certificates tzdata"
@@ -24,8 +25,12 @@ ARG APP_PACKAGES=""
 # Base Layer
 ##################
 FROM nvidia/cuda:${CUDA_VERSION}-${CUDA_IMAGE_TYPE}-ubuntu${UBUNTU_VERSION} as base
+# FROM nvidia/cuda:12.6.1-runtime-ubuntu22.04 as base
 ARG SYS_PACKAGES
 ARG APP_PACKAGES
+ARG UV_PYTHON_INSTALL_DIR
+
+ENV UV_PYTHON_INSTALL_DIR=${UV_PYTHON_INSTALL_DIR}
 
 # Set locale
 ENV LANG=C.UTF-8
@@ -43,9 +48,7 @@ ENV POETRY_MAX_INSTALL_WORKERS=$(nproc)
 ENV POETRY_SOLVER_LAZY_WHEEL=false
 
 # Install base deps
-RUN apt-key adv --keyserver hkp://keyserver.ubuntu.com --recv-keys 871920D1991BC93C && \
-  apt-get update && \
-  DEBIAN_FRONTEND=noninteractive \
+RUN apt-get update && \
   apt-get install -y --no-install-recommends \
   ${SYS_PACKAGES} \
   ${APP_PACKAGES} && \
@@ -59,10 +62,6 @@ FROM base as builder
 ARG PROJECT_NAME
 ARG PYTHON_VERSION
 ARG POETRY_VERSION
-
-# If private PYPI...
-# ENV POETRY_HTTP_BASIC_SHIPT_RESOLVE_USERNAME=
-# ENV POETRY_HTTP_BASIC_SHIPT_RESOLVE_PASSWORD=
 
 ENV PROJECT_HOME=/opt/${PROJECT_NAME}
 
@@ -102,6 +101,7 @@ RUN poetry install --only main
 # ================================================================
 FROM base as prod
 ARG PROJECT_NAME
+ARG UV_PYTHON_INSTALL_DIR
 
 ENV PROJECT_HOME=/opt/${PROJECT_NAME}
 ENV VIRTUAL_ENV=${PROJECT_HOME}/.venv
@@ -110,7 +110,10 @@ ENV PATH="${VIRTUAL_ENV}/bin:$PATH"
 
 WORKDIR ${PROJECT_HOME}
 
+COPY --from=builder ${UV_PYTHON_INSTALL_DIR} ${UV_PYTHON_INSTALL_DIR}/
 COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}/
 # COPY --from=builder "${PROJECT_HOME}/src" "${PROJECT_HOME}/src/"
 
 COPY ltr.py .
+
+# /bin/bash -c ${VIRTUAL_ENV}/bin/activate && exec \$@\ -- python ltr.py
